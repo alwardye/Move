@@ -5,6 +5,7 @@ from kivy.uix.image import Image
 from bs4 import BeautifulSoup as bs
 import random
 import os
+from kivy.logger import Logger
 
 from kivy.animation import Animation
 from kivy.app import App
@@ -51,7 +52,7 @@ Builder.load_string("""
     MDCard:
         pos_hint: {'center_x': .5, 'center_y': .5}
         md_bg_color: app.theme_bars
-        padding: [dp(10), dp(5)]
+        padding: [dp(5), dp(5)]
         MDLabel:
             text: root.title
             font_size: dp(15)
@@ -144,7 +145,7 @@ BoxLayout:
         elevation: 10
         text_color: 1, 1, 1, 1
         pos_hint: {'top': 1}
-        left_action_items: [['arrow-left', lambda x: app.root.back()]]
+        left_action_items: [['chevron-left', lambda x: app.root.back()]]
         right_action_items: [["download", lambda x: app.root.download_link(self.title)]]
         
     BoxLayout:
@@ -154,14 +155,14 @@ BoxLayout:
         
         Widget:
             size_hint_y: None
-            height: dp(30)
+            height: dp(5)
         
-        Image:
+        ClickableImage:
             id: image
             size_hint_y: .6
             source: ''
             allow_stretch: True
-            nocache: True
+            on_release: app.root.show_youtube()
             
         MDCard:
             md_bg_color: app.theme_bars
@@ -178,6 +179,7 @@ BoxLayout:
         ScrollView:
             size_hint: 0.9,0.50
             pos_hint: {'center_x': .5}
+            bar_width: dp(0)
             bar_color: app.theme_cls.primary_color
             MDCard:
                 md_bg_color: app.theme_bars
@@ -195,6 +197,9 @@ BoxLayout:
                     size_hint: 1, None
                     height: self.texture_size[1]
                     
+                
+<ClickableImage@ButtonBehavior+Image>:
+
 """
 
 double_link = """
@@ -269,9 +274,6 @@ FloatLayout:
         DropBtn:
             text: 'Order Oldest'
             on_release: app.root.drop_action('oldest')
-        DropBtn:
-            text: 'About'
-            on_release: app.root.drop_action('about')
             
 <DropBtn>:
     background_color: 0, 0, 0, 0
@@ -282,7 +284,7 @@ FloatLayout:
 search = """
 BoxLayout:
     size_hint_y: None
-    height: dp(65)
+    height: dp(64)
     padding: dp(10)
     pos_hint: {'top': 1}
     canvas.before:
@@ -313,7 +315,9 @@ BoxLayout:
         icon: 'close'   
         theme_text_color: 'Custom'
         text_color: 1, 0, 0, 1
-        on_release: Window.remove_widget(root)
+        on_release: 
+            app.root.showing_search = False
+            Window.remove_widget(root)
 """
 
 about = """
@@ -355,6 +359,56 @@ BoxLayout:
         pos_hint: {'center_x': .5}
         on_release: Window.remove_widget(root)
     
+"""
+
+youtube = """
+FloatLayout:
+    Button:
+        background_color: 0, 0, 0, .7
+        on_release: Window.remove_widget(root)
+        
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [dp(10), dp(10)]
+        pos_hint: {'center_x': .5, 'center_y': .5}
+        size_hint: .8, None
+        height: dp(100)
+        spacing: dp(5)
+        canvas.before:
+            Color:
+                rgba: app.theme 
+            RoundedRectangle:
+                size: self.size
+                pos: self.pos
+                radius: [dp(5)]
+                
+        MDLabel:
+            text: 'Watch the youtube trailer'
+            font_size: dp(15)
+            theme_text_color: 'Custom'
+            halign: 'center'
+            text_color: app.theme_text
+            
+        BoxLayout:
+            spacing: dp(5)
+        
+            MDRaisedButton:
+                md_bg_color: app.ascent
+                text: 'Yeah'
+                theme_text_color: 'Custom'
+                size_hint: 1, 1
+                text_color: app.theme_text
+                pos_hint: {'center_x': .5}
+                on_release: app.root.trailer(root)
+        
+            MDRaisedButton:
+                md_bg_color: app.theme_bars
+                text: 'Nah'
+                theme_text_color: 'Custom'
+                size_hint: 1, 1
+                text_color: 1, 0, 0, 1
+                pos_hint: {'center_x': .5}
+                on_release: Window.remove_widget(root)
 """
 
 
@@ -582,7 +636,7 @@ def get_movies_details(movies: list, ui_class: classmethod, movie_id):
         pic = content.find_all('div', class_='logo')
         pic = pic[-2].img['src']
         pic_link = f'https:{pic}'.replace(' ', '%20')
-        pic = pic.split('/')[-1]
+        pic = f"Pic/{pic.split('/')[-1]}"
 
         description_section = content.find_all('div', class_='description')
         description = (':'.join(description_section[3].text.split(':')[1:])).strip()
@@ -590,7 +644,6 @@ def get_movies_details(movies: list, ui_class: classmethod, movie_id):
         runtime = (':'.join(description_section[4].text.split(':')[1:])).strip()
 
         data = [movie_id, movie[0], pic, description, runtime, dumps(links), pic_link]
-        print(data)
 
         ui_class.ids.num_info.text = f'{i + 1}/{len(movies)}'
         ui_class.ids.progress.value = i + 1
@@ -607,6 +660,7 @@ def discover_new_movies(known: list, callback: classmethod, launch: bool):
         thread = Thread(target=discover_new_movies, args=[
             known, callback, False
         ])
+        thread.setDaemon(True)
         thread.start()
     else:
         ui_class = callback
@@ -621,6 +675,7 @@ def discover_new_movies(known: list, callback: classmethod, launch: bool):
         while discover_loop:
             url = f'https://hdmp4mania1.net/showcat.php?catid=2&sort=1&letter=&page={index}'
             movie_list = get_index_details(url)
+            index += 1
 
             for movie in movie_list:
                 if movie[0] == known[1]:
@@ -659,6 +714,7 @@ def movie_list_build(root, movies_list, launch: bool):
         thread = Thread(target=movie_list_build, args=[
             root, data, False
         ])
+        thread.setDaemon(True)
         thread.start()
     else:
         data = []
@@ -676,17 +732,20 @@ def download_picture(link: list, launch: bool):
         thread = Thread(target=download_picture, args=[
             link, False
         ])
+        thread.setDaemon(True)
         thread.start()
     else:
         try:
             response = requests.get(link[0], stream=True)
             with open(link[1], 'wb') as out_file:
                 shutil.copyfileobj(response.raw, out_file)
-        except:
-            print('Network Error')
-
-        App.get_running_app().root.update_image(link[1])
-
+            
+            App.get_running_app().root.update_image(link[1])
+        except Exception as e:
+            Logger.error(str(e))
+            Logger.info(link[1])
+            App.get_running_app().root.update_image('failed.png')
+        
 
 def double_link_build(root):
     root.double_layout = Builder.load_string(double_link)
@@ -700,19 +759,24 @@ def search_build(root):
     root.search_layout = Builder.load_string(search)
 
 
+def youtube_build(root):
+    if not root.youtube_layout:
+        root.youtube_layout = Builder.load_string(youtube)
+
+
 def about_view_build(root):
     root.about_app_layout = Builder.load_string(about)
 
 
 def export_database(external: str):
-    if os.path.exists(f'{external}DaveMovies'):
-        os.mkdir(f'{external}DaveMovies')
+    if not os.path.exists(f'{external}Movies'):
+        os.mkdir(f'{external}Movies')
         
-    if os.path.exists(f'{external}DaveMovies/movies.db'):
+    if not os.path.exists(f'{external}Movies/movies.db'):
         with open(f'{os.getcwd()}/movies.db', 'rb') as file:
             data = file.read()
             
-        with open(f'{external}/DaveMovies/movies.db', 'wb') as file:
+        with open(f'{external}Movies/movies.db', 'wb') as file:
             file.write(data)
 
 

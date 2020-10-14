@@ -1,8 +1,3 @@
-from kivy.config import Config
-
-Config.set('graphics', 'width', '400')
-Config.set('graphics', 'height', '720')
-
 # kivy imports
 from kivy.core.window import Window
 from kivy.clock import Clock, mainthread
@@ -11,6 +6,7 @@ from kivy.properties import StringProperty
 from kivymd.app import MDApp
 from kivy.factory import Factory
 from kivy.uix.screenmanager import ScreenManager
+from android.permissions import request_permissions, Permission
 
 # python imports
 import pickle
@@ -18,6 +14,7 @@ import webbrowser
 import sqlite3
 import json
 import os
+from jnius import autoclass
 
 # app imports
 from asset import (
@@ -30,15 +27,19 @@ from asset import (
 	drop_down_build,
 	search_build,
 	about_view_build,
-	export_database
+	export_database,
+	youtube_build
 )
 
+Environment = autoclass('android.os.Environment')
+external_disk = Environment.getExternalStorageDirectory().getAbsolutePath()
+external_disk = f'{external_disk}/'
 
-conn = sqlite3.connect('movies.db')
-external_disk = '/storage/emulated/0/'
-
-# export_database(external_disk)
-# conn = sqlite3.connect(f'{external_disk}/DaveMovies/movies.db')
+try:
+	export_database(external_disk)
+	conn = sqlite3.connect(f'{external_disk}/Movies/movies.db')
+except:
+	conn = sqlite3.connect('movies.db')
 
 
 Builder.load_string(''' 
@@ -89,7 +90,7 @@ Builder.load_string('''
 													
 <RecycleList@RecycleView>:
 	bar_color: app.ascent
-	bar_width: dp(10)
+	bar_width: dp(10) if len(self.data) > 200 else dp(2)
 	scroll_type: ['content', 'bars']
 	viewclass: 'MovieItem'
 	RecycleBoxLayout:
@@ -115,8 +116,12 @@ class Movies(ScreenManager):
 		self.drop_down_layout = None
 		self.search_layout = None
 		self.about_app_layout = None
+		self.youtube_layout = None
 
 		self.modified = False
+		self.showing_search = False
+		request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE])
+
 
 		movie_list_build(self, conn, True)
 
@@ -134,6 +139,7 @@ class Movies(ScreenManager):
 		if os.path.exists(data[0]):
 			self.preview_layout.ids.image.source = data[0]
 		else:
+			self.preview_layout.ids.image.source = 'downloading.png'
 			download_picture(
 				[data[-1], data[0]], True
 			)
@@ -192,8 +198,13 @@ class Movies(ScreenManager):
 	def update_image(self, file):
 		self.preview_layout.ids.image.source = file
 
-	@staticmethod
-	def trailer(name):
+	def show_youtube(self):
+		youtube_build(self)
+		Window.add_widget(self.youtube_layout)
+
+	def trailer(self, root):
+		Window.remove_widget(root)
+		name = self.preview_layout.ids.title.title
 		link_ = 'https://m.youtube.com/results?search_query='+name+' trailer'.replace(' ', '+')
 		webbrowser.open(link_)
 
@@ -237,10 +248,12 @@ class Movies(ScreenManager):
 			search_build(self)
 
 		Window.add_widget(self.search_layout)
+		self.showing_search = True
 		self.search_layout.ids.input.focus = True
 
 	def search(self, key):
 		Window.remove_widget(self.search_layout)
+		self.showing_search = False
 
 		if key:
 			if self.modified:
@@ -280,11 +293,17 @@ class MovieApp(MDApp):
 	def android_nav(self, __, key, *_):
 
 		if key == 27:
-			if self.root.ids.screens.current == 'menu':
-				sys.exit()
+			if self.root.current == 'base':
+				sys.exist()
+				
 
-			self.root.ids.screens.transition.direction = 'right'
-			self.root.ids.screens.current = 'menu'
+			self.root.current = 'base'
+			return True
+		elif key == 13:
+			if self.root.showing_search:
+				key = self.root.search_layout.ids.input.text
+				self.root.search(key)
+
 			return True
 
 
